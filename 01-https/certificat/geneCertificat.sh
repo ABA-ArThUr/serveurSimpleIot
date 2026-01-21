@@ -1,69 +1,113 @@
 #!/bin/bash
+set -e
 
-# Définition des fichiers
-CA_KEY="caIot.key"   # Clé privée du CA
-CA_CERT="caIot.crt"  # Certificat du CA
+# ======================
+# VARIABLES
+# ======================
+CA_KEY="caIot.key"
+CA_CERT="caIot.crt"
+CA_CNF="ca.cnf"
 
 SERVER_KEY="serverIot_30.key"
 SERVER_CSR="serverIot_30.csr"
 SERVER_CERT="serverIot_30.crt"
-SERVER_EXT="serverIot_30.ext"
+SERVER_CNF="server.cnf"
 
-# Partie Client
 CLIENT_KEY="clientIot.key"
 CLIENT_CSR="clientIot.csr"
 CLIENT_CERT="clientIot.crt"
-CLIENT_EXT="clientIot.ext"
+CLIENT_CNF="client.cnf"
 
-# Common Name
 CA_CN="CA_Broce"
 SERVER_CN="serv_Iot.com"
-IP_SERVER="192.168.1.30"
+SERVER_IP="192.168.1.116"
 CLIENT_CN="clientIot"
 
+# ======================
+# CONFIG CA
+# ======================
+cat > $CA_CNF <<EOF
+[ req ]
+default_bits       = 4096
+distinguished_name = dn
+x509_extensions    = v3_ca
+prompt             = no
+
+[ dn ]
+CN = $CA_CN
+
+[ v3_ca ]
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+EOF
 # Création du CA (décommentez si nécessaire)
-# echo "Création de la clé privée de la CA..."
-openssl genrsa -out $CA_KEY 2048
-# echo "Création du certificat auto-signé de la CA..."
-openssl req -x509 -new -key $CA_KEY -sha256 -days 3650 -out $CA_CERT -subj "/CN=$CA_CN"
+echo "Création de la clé privée de la CA..."
+openssl genrsa -out $CA_KEY 4096
+echo "Création du certificat auto-signé de la CA..."
+openssl req -new -x509 -key $CA_KEY -days 3650 -sha256 -out $CA_CERT -config $CA_CNF
 
 # --------------------
 # Partie Serveur
 # --------------------
+# ======================
+# CONFIG SERVEUR
+# ======================
+cat > $SERVER_CNF <<EOF
+[ req ]
+default_bits       = 2048
+distinguished_name = dn
+req_extensions     = v3_req
+prompt             = no
+
+[ dn ]
+CN = $SERVER_CN
+
+[ v3_req ]
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = $SERVER_CN
+IP.1  = $SERVER_IP
+EOF
 echo "Création de la clé privée du serveur..."
 openssl genrsa -out $SERVER_KEY 2048
-
 echo "Création de la demande de certificat du serveur..."
-openssl req -new -key $SERVER_KEY -out $SERVER_CSR -subj "/CN=$SERVER_CN"
-
-cat > $SERVER_EXT <<EOF
-[ v3_ext ]
-subjectAltName = IP:$IP_SERVER
-EOF
-
+openssl req -new -key $SERVER_KEY -out $SERVER_CSR -config $SERVER_CNF
 echo "Signature du certificat serveur avec la CA..."
-openssl x509 -req -in $SERVER_CSR -CA $CA_CERT -CAkey $CA_KEY -CAcreateserial -out $SERVER_CERT -days 365 -sha256 -extfile $SERVER_EXT -extensions v3_ext
-
-echo "Certificat serveur généré :"
-openssl x509 -in $SERVER_CERT -text -noout
+openssl x509 -req -in $SERVER_CSR -CA $CA_CERT -CAkey $CA_KEY -CAcreateserial -out $SERVER_CERT \
+  -days 365 -sha256 -extensions v3_req -extfile $SERVER_CNF
 
 # --------------------
 # Partie Client
 # --------------------
-echo "Création de la clé privée du client..."
-openssl genrsa -out $CLIENT_KEY 2048
+# ======================
+# CONFIG CLIENT
+# ======================
+cat > $CLIENT_CNF <<EOF
+[ req ]
+default_bits       = 2048
+distinguished_name = dn
+req_extensions     = v3_req
+prompt             = no
 
-echo "Création de la demande de certificat du client..."
-openssl req -new -key $CLIENT_KEY -out $CLIENT_CSR -subj "/CN=$CLIENT_CN"
+[ dn ]
+CN = $CLIENT_CN
 
-cat > $CLIENT_EXT <<EOF
-[ v3_ext ]
+[ v3_req ]
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature
 extendedKeyUsage = clientAuth
 EOF
-
+echo "Création de la clé privée du client..."
+openssl genrsa -out $CLIENT_KEY 2048
+echo "Création de la demande de certificat du client..."
+openssl req -new -key $CLIENT_KEY -out $CLIENT_CSR -config $CLIENT_CNF
 echo "Signature du certificat client avec la CA..."
-openssl x509 -req -in $CLIENT_CSR -CA $CA_CERT -CAkey $CA_KEY -out $CLIENT_CERT -days 365 -sha256 -extfile $CLIENT_EXT -extensions v3_ext
+openssl x509 -req -in $CLIENT_CSR -CA $CA_CERT -CAkey $CA_KEY -out $CLIENT_CERT  -days 365 -sha256 -extensions v3_req -extfile $CLIENT_CNF
 
-echo "Certificat client généré :"
-openssl x509 -in $CLIENT_CERT -text -noout
 
+echo "Fin"
